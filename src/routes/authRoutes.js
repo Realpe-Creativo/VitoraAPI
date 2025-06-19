@@ -12,7 +12,7 @@ const router = express.Router();
  * @access Public
  */
 router.post('/login', [
-  body('nombre').notEmpty().withMessage('Username is required'),
+  body('email').notEmpty().withMessage('Email is required'),
   body('password').notEmpty().withMessage('Password is required'),
   validate
 ], authController.login);

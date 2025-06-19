@@ -47,6 +47,7 @@ router.post('/', [
   body('nombre').notEmpty().withMessage('Nombre is required'),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
   body('rol').isInt().withMessage('Rol must be an integer'),
+  body('email').notEmpty().withMessage('Email is required'),
   validate
 ], usuarioController.createUsuario);
 

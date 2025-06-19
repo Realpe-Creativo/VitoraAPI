@@ -2,7 +2,7 @@ const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
 const Transaccion = sequelize.define('Transaccion', {
-  ID_transacción: {
+  id_transaccion: {
     type: DataTypes.INTEGER,
     primaryKey: true,
     autoIncrement: true,
@@ -27,6 +27,11 @@ const Transaccion = sequelize.define('Transaccion', {
       model: 'ordenes_pago',
       key: 'order_id'
     }
+  },
+  referencia: {
+    type: DataTypes.BIGINT,
+    allowNull: false,
+    unique: true
   }
 }, {
   tableName: 'transacciones',

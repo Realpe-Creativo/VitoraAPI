@@ -7,18 +7,21 @@ const { Usuario } = require('../models');
  */
 const login = async (req, res, next) => {
   try {
-    const { nombre, password } = req.body;
+    const { email, password } = req.body;
     
-    // Find user by nombre
+    console.log("VA A BUSCAR A EL USUARIO ");
+    // Find user by email
     const user = await Usuario.findOne({ 
-      where: { nombre },
+      where: { email },
       include: [{ association: 'rolUsuario' }]
     });
-    
+
     // Check if user exists
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials.' });
     }
+
+    console.log("VA POR AQUÍ 2 " +  user.email)
     
     // Validate password
     const isValidPassword = await user.validPassword(password);
@@ -31,6 +34,7 @@ const login = async (req, res, next) => {
       { 
         id: user.id_user,
         nombre: user.nombre,
+        email: user.email,
         rol: user.rolUsuario.nombre
       },
       process.env.JWT_SECRET,
@@ -40,7 +44,7 @@ const login = async (req, res, next) => {
     res.json({
       user: {
         id: user.id_user,
-        nombre: user.nombre,
+        email: user.email,
         rol: user.rolUsuario.nombre
       },
       token

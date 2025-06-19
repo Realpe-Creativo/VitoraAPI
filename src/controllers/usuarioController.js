@@ -45,8 +45,8 @@ const getUsuarioById = async (req, res, next) => {
  */
 const createUsuario = async (req, res, next) => {
   try {
-    const { nombre, rol, password } = req.body;
-    
+    const { nombre, rol, password, email } = req.body;
+
     // Check if usuario already exists
     const existingUsuario = await Usuario.findOne({ where: { nombre } });
     if (existingUsuario) {
@@ -62,7 +62,8 @@ const createUsuario = async (req, res, next) => {
     const usuario = await Usuario.create({
       nombre,
       rol,
-      password
+      password,
+      email
     });
     
     // Return usuario without password

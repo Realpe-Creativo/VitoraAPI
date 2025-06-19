@@ -8,12 +8,12 @@ const EstadoTransaccion = sequelize.define('EstadoTransaccion', {
     autoIncrement: true,
     allowNull: false
   },
-  id_transacción: {
+  id_transaccion: {
     type: DataTypes.INTEGER,
     allowNull: false,
     references: {
       model: 'transacciones',
-      key: 'ID_transacción'
+      key: 'id_transaccion'
     }
   },
   nombre_estado: {

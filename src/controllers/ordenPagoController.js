@@ -26,7 +26,7 @@ const getAllOrdenesPago = async (req, res, next) => {
 const getOrdenPagoById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    
+
     const ordenPago = await OrdenPago.findByPk(id, {
       include: [
         { model: Cliente, as: 'cliente' },
@@ -34,11 +34,11 @@ const getOrdenPagoById = async (req, res, next) => {
         { model: OrdenCargue, as: 'ordenCargue' }
       ]
     });
-    
+
     if (!ordenPago) {
       return res.status(404).json({ message: 'Orden de pago not found' });
     }
-    
+
     res.json(ordenPago);
   } catch (error) {
     next(error);
@@ -51,47 +51,66 @@ const getOrdenPagoById = async (req, res, next) => {
  */
 const createOrdenPago = async (req, res, next) => {
   try {
-    const { 
-      cliente_id, 
+
+    const {
+      cliente_id,
+      tipo_identificacion,
+      nombre_cliente,
       fecha_creacion,
       ultimo_intento_pago,
       forma_cargue,
       orden_cargue_archivo,
-      valor_a_pagar 
+      valor_a_pagar,
+      valor_parcial,
+      fecha_vencimiento,
     } = req.body;
-    
-    // Check if cliente exists
-    const cliente = await Cliente.findByPk(cliente_id);
-    if (!cliente) {
-      return res.status(400).json({ message: 'Cliente not found' });
+
+    let cliente = await Cliente.findOne({
+      where: { identificacion: cliente_id }
+    });
+
+    if (!cliente && forma_cargue === 'manual') {
+      cliente = await Cliente.create({
+        identificacion: cliente_id,
+        tipo_identificacion: tipo_identificacion, 
+        nombre_cliente: nombre_cliente, 
+      });
     }
-    
-    // If forma_cargue is 'archivo', check if orden_cargue_archivo exists
+
+    if (!cliente) {
+      return res.status(400).json({ message: 'Cliente no encontrado' });
+    }
+
     if (forma_cargue === 'archivo' && orden_cargue_archivo) {
       const ordenCargue = await OrdenCargue.findByPk(orden_cargue_archivo);
       if (!ordenCargue) {
-        return res.status(400).json({ message: 'Orden de cargue not found' });
+        return res.status(400).json({ message: 'Orden de cargue no encontrada' });
       }
     }
-    
-    // Set usuario_crea_manual based on authenticated user if forma_cargue is 'manual'
+
+    // Usuario creador si es manual
     let usuario_crea_manual = null;
     if (forma_cargue === 'manual') {
       usuario_crea_manual = req.user.id;
     }
-    
+
+    // Crear la orden de pago
     const ordenPago = await OrdenPago.create({
-      cliente_id,
+      cliente_id: cliente.id,
       fecha_creacion: fecha_creacion || new Date(),
       ultimo_intento_pago,
       forma_cargue,
       usuario_crea_manual,
       orden_cargue_archivo: forma_cargue === 'archivo' ? orden_cargue_archivo : null,
-      valor_a_pagar
+      valor_a_pagar,
+      valor_parcial,
+      fecha_vencimiento,
+      estado: "CARGADO"
     });
-    
+
     res.status(201).json(ordenPago);
   } catch (error) {
+    console.log("error: ", error);
     next(error);
   }
 };
@@ -103,17 +122,17 @@ const createOrdenPago = async (req, res, next) => {
 const updateOrdenPago = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { 
-      cliente_id, 
+    const {
+      cliente_id,
       ultimo_intento_pago,
-      valor_a_pagar 
+      valor_a_pagar
     } = req.body;
-    
+
     const ordenPago = await OrdenPago.findByPk(id);
     if (!ordenPago) {
       return res.status(404).json({ message: 'Orden de pago not found' });
     }
-    
+
     // Check if cliente exists if cliente_id is provided
     if (cliente_id) {
       const cliente = await Cliente.findByPk(cliente_id);
@@ -121,14 +140,14 @@ const updateOrdenPago = async (req, res, next) => {
         return res.status(400).json({ message: 'Cliente not found' });
       }
     }
-    
+
     // Update ordenPago
     await ordenPago.update({
       cliente_id: cliente_id || ordenPago.cliente_id,
       ultimo_intento_pago: ultimo_intento_pago || ordenPago.ultimo_intento_pago,
       valor_a_pagar: valor_a_pagar || ordenPago.valor_a_pagar
     });
-    
+
     res.json(ordenPago);
   } catch (error) {
     next(error);
@@ -142,17 +161,31 @@ const updateOrdenPago = async (req, res, next) => {
 const deleteOrdenPago = async (req, res, next) => {
   try {
     const { id } = req.params;
-    
+
     const ordenPago = await OrdenPago.findByPk(id);
     if (!ordenPago) {
       return res.status(404).json({ message: 'Orden de pago not found' });
     }
-    
+
     await ordenPago.destroy();
-    
+
     res.json({ message: 'Orden de pago deleted successfully' });
   } catch (error) {
     next(error);
+  }
+};
+
+const getOrdenesPagoByCliente = async (req, res, next) => {
+  const { tipo_identificacion, identificacion } = req.body;
+  try {
+    const cliente = await Cliente.findOne({ where: { tipo_identificacion, identificacion } });
+    if (!cliente) {
+      return res.status(404).json({ message: 'Cliente no encontrado' });
+    }
+    const ordenes = await OrdenPago.findAll({ where: { cliente_id: cliente.id } });
+    return res.json(ordenes);
+  } catch (err) {
+    next(err);
   }
 };
 
@@ -161,5 +194,6 @@ module.exports = {
   getOrdenPagoById,
   createOrdenPago,
   updateOrdenPago,
-  deleteOrdenPago
+  deleteOrdenPago,
+  getOrdenesPagoByCliente
 };

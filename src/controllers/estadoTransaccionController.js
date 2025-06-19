@@ -51,7 +51,7 @@ const getEstadosByTransaccionId = async (req, res, next) => {
     }
     
     const estados = await EstadoTransaccion.findAll({
-      where: { id_transacción: id },
+      where: { id_transaccion: id },
       order: [['fecha_hora_estado', 'DESC']]
     });
     

@@ -29,6 +29,10 @@ const OrdenPago = sequelize.define('OrdenPago', {
     type: DataTypes.ENUM('manual', 'archivo'),
     allowNull: false
   },
+  estado: {
+    type: DataTypes.ENUM('CARGADO', 'PAGADO', 'PENDIENTE'),
+    allowNull: false
+  },
   usuario_crea_manual: {
     type: DataTypes.INTEGER,
     allowNull: true,
@@ -48,7 +52,16 @@ const OrdenPago = sequelize.define('OrdenPago', {
   valor_a_pagar: {
     type: DataTypes.DECIMAL(12, 2),
     allowNull: false
-  }
+  },
+  valor_parcial: {
+    type: DataTypes.DECIMAL(12, 2),
+    allowNull: false
+  },
+  fecha_vencimiento: {
+    type: DataTypes.DATE,
+    allowNull: false,
+    defaultValue: DataTypes.NOW
+  },
 }, {
   tableName: 'ordenes_pago',
   timestamps: false,

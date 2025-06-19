@@ -61,11 +61,11 @@ const setupAssociations = () => {
 
   // EstadoTransaccion belongs to Transaccion
   EstadoTransaccion.belongsTo(Transaccion, {
-    foreignKey: 'id_transacción',
+    foreignKey: 'id_transaccion',
     as: 'transaccion'
   });
   Transaccion.hasMany(EstadoTransaccion, {
-    foreignKey: 'id_transacción',
+    foreignKey: 'id_transaccion',
     as: 'estados'
   });
 
