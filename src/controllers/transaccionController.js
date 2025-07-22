@@ -131,7 +131,7 @@ const createTransaccion = async (req, res, next) => {
       product_id: "1238",
       transaction_date,
       channel_date,
-      commerce_url: `http://localhost:5173/estado_pago?referencia=${nextRef}`,
+      commerce_url: `https://webappcheckout-develop.up.railway.app/estado_pago?referencia=${nextRef}`,
       ip_client: "191.111.208.165",
       user_agent: req.headers['user-agent'] || "Mozilla/5.0",
       device: "device",
