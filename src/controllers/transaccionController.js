@@ -1,4 +1,4 @@
-const { Transaccion, OrdenPago, EstadoTransaccion } = require('../models');
+const { Transaccion, OrdenPago, EstadoTransaccion, Usuario } = require('../models');
 const { sequelize } = require('../config/database');
 const axios = require('axios');
 const moment = require('moment'); // Asegúrate de tenerlo instalado o usa new Date().toISOString()
@@ -376,7 +376,8 @@ const consultarEstadoTransaccion = async (req, res, next) => {
     const nuevoEstado = await EstadoTransaccion.create({
       id_transaccion: transaccion.id_transaccion,
       nombre_estado: nombre_estado_nuevo,
-      fecha_hora_estado: new Date()
+      fecha_hora_estado: new Date(),
+      payload_json: JSON.stringify(data)
     }, { transaction: t });
 
     await transaccion.update({
@@ -445,6 +446,130 @@ const consultarTransaccionByOrden = async (req, res, next) => {
   }
 };
 
+/**
+ * Notificación de la pasarela de pagos para actualizar estado de transacción
+ * @route POST /transacciones/notificacion_pago
+ */
+const notificacion_pago = async (req, res, next) => {
+  const t = await sequelize.transaction();
+
+  try {
+    const data = req.body;
+
+    const { user_app: email, password_app: password } = data;
+
+    // Validar credenciales
+    if (!email || !password) {
+      return res.status(400).json({
+        state_code: "4",
+        state_message: "Credenciales no proporcionadas.",
+        state_transaction: "false"
+      });
+    }
+
+    const usuario = await Usuario.findOne({ where: { email } });
+    if (!usuario) {
+      return res.status(400).json({
+        state_code: "4",
+        state_message: "Usuario no encontrado.",
+        state_transaction: "false"
+      });
+    }
+
+    const passwordValida = await usuario.validPassword(password);
+    if (!passwordValida) {
+      return res.status(400).json({
+        state_code: "4",
+        state_message: "Credenciales inválidas.",
+        state_transaction: "false"
+      });
+    }
+
+    // Obtener referencia desde registry[0].reference01
+    const referencia = data.transactionInformation?.registry?.[0]?.reference01;
+
+    if (!referencia) {
+      return res.status(400).json({
+        state_code: "4",
+        state_message: "Referencia no proporcionada.",
+        state_transaction: "false"
+      });
+    }
+
+    const nuevoEstadoNombre = data.state_description;
+    const codigoEstadoPasarela = data.state_code;
+    const invoice_number = referencia;
+
+    const transaccion = await Transaccion.findOne({ where: { referencia } });
+    if (!transaccion) {
+      return res.status(400).json({
+        state_code: "4",
+        state_message: "Referencia no encontrada.",
+        state_transaction: "false",
+        invoice_number
+      });
+    }
+
+    const estadoActual = await EstadoTransaccion.findByPk(transaccion.ultimo_estado);
+
+    const ESTADOS_FINALES = ['APROBADO', 'RECHAZADO', 'FALLIDO'];
+
+    if (estadoActual && ESTADOS_FINALES.includes(estadoActual.nombre_estado.toUpperCase())) {
+      return res.status(200).json({
+        state_code: codigoEstadoPasarela,
+        state_message: `Transacción ya está en estado final: ${estadoActual.nombre_estado}`,
+        state_transaction: "true",
+        invoice_number
+      });
+    }
+
+    if (estadoActual && estadoActual.nombre_estado === nuevoEstadoNombre) {
+      return res.status(200).json({
+        state_code: codigoEstadoPasarela,
+        state_message: "Estado recibido coincide con el actual. No se actualiza.",
+        state_transaction: "true",
+        invoice_number
+      });
+    }
+
+    const nuevoEstado = await EstadoTransaccion.create({
+      id_transaccion: transaccion.id_transaccion,
+      nombre_estado: nuevoEstadoNombre,
+      fecha_hora_estado: new Date(),
+      payload_json: JSON.stringify(data) // Guardar JSON completo
+    }, { transaction: t });
+
+    await transaccion.update({
+      ultimo_estado: nuevoEstado.id_estado
+    }, { transaction: t });
+
+    if (nuevoEstadoNombre.toUpperCase() === 'APROBADA' || nuevoEstadoNombre.toUpperCase() === 'APROBADO') {
+      await OrdenPago.update(
+        { estado: 'PAGADO' },
+        { where: { order_id: transaccion.id_orden_pago }, transaction: t }
+      );
+    }
+
+    await t.commit();
+
+    return res.status(200).json({
+      state_code: codigoEstadoPasarela,
+      state_message: "Transacción actualizada",
+      state_transaction: "true",
+      invoice_number
+    });
+
+  } catch (error) {
+    await t.rollback();
+    console.error('Error en notificación de pago:', error.message);
+    return res.status(400).json({
+      state_code: "4",
+      state_message: "Error interno en el comercio.",
+      state_transaction: "false"
+    });
+  }
+};
+
 module.exports = {
   getAllTransacciones,
   getTransaccionById,
@@ -452,5 +577,6 @@ module.exports = {
   updateTransaccionEstado,
   deleteTransaccion,
   consultarEstadoTransaccion,
-  consultarTransaccionByOrden
+  consultarTransaccionByOrden,
+  notificacion_pago
 };

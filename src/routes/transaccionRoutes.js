@@ -28,6 +28,8 @@ router.post('/',
 
 router.post('/consultar-estado', transaccionController.consultarEstadoTransaccion);
 
+router.post('/notificacion_pago', transaccionController.notificacion_pago);
+
 // Protect all routes
 router.use(authenticateToken);
 
