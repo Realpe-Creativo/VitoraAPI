@@ -232,7 +232,7 @@ const getOrdenesPagoByCliente = async (req, res, next) => {
         );
         const ultimoEstado = estadosOrdenados[0]?.nombre_estado;
 
-        return !['APROBADO', 'EN PROCESO'].includes(ultimoEstado);
+        return !['APROBADA','APROBADO', 'EN PROCESO'].includes(ultimoEstado);
       });
     } else {
       ordenes = await OrdenPago.findAll({
