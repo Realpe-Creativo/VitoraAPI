@@ -131,7 +131,7 @@ const createTransaccion = async (req, res, next) => {
 
     // Siguiente referencia única
     const last = await Transaccion.max('referencia');
-    const nextRef = last ? last + 1 : 100000000;
+    const nextRef = last ? last + 1 : 1000000000;
 
     // Asegura Cliente (idempotente simple por identificación)
     let cliente = await Cliente.findOne({where: {identificacion: document_number}, transaction: t});
@@ -341,6 +341,7 @@ const consultarEstadoTransaccion = async (req, res, next) => {
     const tx = byUpdated[0];
 
     const wompiStatus = tx.status;               // APPROVED | DECLINED | PENDING | ...
+    const wompiID = tx.id;
     const amountInCents = tx.amount_in_cents;
     const nuevoEstadoNombre = mapEstado(wompiStatus);
 
@@ -391,15 +392,7 @@ const consultarEstadoTransaccion = async (req, res, next) => {
       valor_reportado_centavos: amountInCents ?? null
     }, { transaction: t });
 
-    await transaccion.update({ ultimo_estado: nuevoEstado.id_estado }, { transaction: t });
-
-    // 6) Si quedó aprobado, marcar la orden como pagada
-    if (nuevoEstadoNombre.toUpperCase() === 'APROBADO') {
-      await OrdenPago.update(
-          { estado: 'PAGADO' },
-          { where: { order_id: transaccion.id_orden_pago }, transaction: t }
-      );
-    }
+    await transaccion.update({ ultimo_estado: nuevoEstado.id_estado, id_wompi: wompiID }, { transaction: t });
 
     await t.commit();
 
@@ -477,6 +470,7 @@ const notificacion_pago = async (req, res) => {
   // Extraer info relevante
   const tx = req.body?.data?.transaction || {};
   const reference = tx?.reference;
+  const id_wompi = tx?.id;
   const wompiStatus = tx?.status;
   const amountInCents = tx?.amount_in_cents;
 
@@ -523,7 +517,7 @@ const notificacion_pago = async (req, res) => {
       valor_reportado_centavos: amountInCents ?? null
     }, { transaction: t });
 
-    await transaccion.update({ ultimo_estado: nuevoEstado.id_estado }, { transaction: t });
+    await transaccion.update({ ultimo_estado: nuevoEstado.id_estado, id_wompi }, { transaction: t });
 
     await t.commit();
     return res.status(200).json({ message: 'OK', state: nuevoEstadoNombre });
