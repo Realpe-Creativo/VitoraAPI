@@ -33,12 +33,34 @@ const getClienteById = async (req, res, next) => {
 };
 
 /**
+ * Get cliente by identificacion
+ */
+const getClienteByIdentificacion = async (req, res, next) => {
+    try {
+        const { identificacion } = req.params;
+
+        // Buscar cliente por su campo 'identificacion'
+        const cliente = await Cliente.findOne({
+            where: { identificacion },
+        });
+
+        if (!cliente) {
+            return res.status(404).json({ message: "Cliente not found" });
+        }
+
+        res.json(cliente);
+    } catch (error) {
+        /*next(error);*/
+    }
+};
+
+/**
  * Create new cliente
  * @route POST /clientes
  */
 const createCliente = async (req, res, next) => {
   try {
-    const { identificacion, tipo_identificacion, nombre_cliente } = req.body;
+    const { identificacion, tipo_identificacion, nombre_cliente, email } = req.body;
     
     // Check if cliente already exists with the same identificacion
     const existingCliente = await Cliente.findOne({ where: { identificacion } });
@@ -51,7 +73,8 @@ const createCliente = async (req, res, next) => {
     const cliente = await Cliente.create({
       identificacion,
       tipo_identificacion,
-      nombre_cliente
+      nombre_cliente,
+      email
     });
     
     res.status(201).json(cliente);
@@ -121,6 +144,7 @@ const deleteCliente = async (req, res, next) => {
 module.exports = {
   getAllClientes,
   getClienteById,
+  getClienteByIdentificacion,
   createCliente,
   updateCliente,
   deleteCliente

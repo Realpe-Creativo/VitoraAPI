@@ -20,14 +20,6 @@ const Transaccion = sequelize.define('Transaccion', {
     type: DataTypes.DECIMAL(12, 2),
     allowNull: false
   },
-  id_orden_pago: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: 'ordenes_pago',
-      key: 'order_id'
-    }
-  },
   referencia: {
     type: DataTypes.BIGINT,
     allowNull: false,

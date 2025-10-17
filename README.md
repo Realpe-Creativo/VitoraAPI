@@ -17,9 +17,7 @@ A complete REST API for payment management with authentication, authorization, a
 The API implements the following data model:
 
 1. **Clientes**: Store customer information
-2. **Orden de pago**: Payment orders that can be created manually or through file uploads
-3. **Orden de cargue**: File upload records for batch payment orders
-4. **Transacciones**: Payment transactions linked to payment orders
+2  **Transacciones**: Payment transactions linked to payment orders
 5. **Estados de transacciones**: Transaction state history
 6. **Usuario**: System users with roles
 7. **Roles**: User roles for authorization
@@ -80,22 +78,6 @@ The API implements the following data model:
 - `POST /api/clientes`: Create a new client
 - `PUT /api/clientes/:id`: Update a client
 - `DELETE /api/clientes/:id`: Delete a client
-
-### Ordenes de Pago
-
-- `GET /api/ordenes-pago`: Get all payment orders
-- `GET /api/ordenes-pago/:id`: Get payment order by ID
-- `POST /api/ordenes-pago`: Create a new payment order
-- `PUT /api/ordenes-pago/:id`: Update a payment order
-- `DELETE /api/ordenes-pago/:id`: Delete a payment order
-
-### Ordenes de Cargue
-
-- `GET /api/ordenes-cargue`: Get all upload orders
-- `GET /api/ordenes-cargue/:id`: Get upload order by ID
-- `POST /api/ordenes-cargue`: Create a new upload order
-- `PUT /api/ordenes-cargue/:id`: Update an upload order
-- `DELETE /api/ordenes-cargue/:id`: Delete an upload order
 
 ### Transacciones
 

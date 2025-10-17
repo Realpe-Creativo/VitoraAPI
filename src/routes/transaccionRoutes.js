@@ -19,7 +19,6 @@ router.post('/',
       next();
     },
     body('valor_de_pago').isFloat({ min: 0 }).withMessage('Valor de pago must be a positive number'),
-    body('id_orden_pago').isInt().withMessage('ID orden pago must be an integer'),
     body('estado_inicial').optional().notEmpty().withMessage('Estado inicial cannot be empty'),
     validate
   ],
