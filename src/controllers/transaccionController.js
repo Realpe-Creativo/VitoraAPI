@@ -179,7 +179,7 @@ const createTransaccion = async (req, res, next) => {
       'reference': reference,
       'signature:integrity': signatureHex,
       // opcionales
-      ...(WOMPI_REDIRECT_URL ? {'redirect-url': WOMPI_REDIRECT_URL||reference} : {}),
+      ...(WOMPI_REDIRECT_URL ? {'redirect-url': WOMPI_REDIRECT_URL} : {}),
       ...(expirationTime ? {'expiration-time': expirationTime} : {}),
       ...(email ? {'customer-data:email': email} : {}),
       ...(name1 || last_name1 ? {'customer-data:full-name': [name1, last_name1].filter(Boolean).join(' ')} : {}),
