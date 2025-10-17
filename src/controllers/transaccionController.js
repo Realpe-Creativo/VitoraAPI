@@ -311,9 +311,8 @@ const consultarEstadoTransaccion = async (req, res, next) => {
     }
 
     // Llamada a la API de Wompi con la Public Key
-    const url = `${WOMPI_API_BASE}/v1/transactions`;
+    const url = `${WOMPI_API_BASE}/v1/transactions/${referencia}`;
     const wompiResp = await axios.get(url, {
-      params: { reference: referencia },
       timeout: WOMPI_API_TIMEOUT_MS,
       headers: {
         Authorization: `Bearer ${WOMPI_PRIVATE_KEY}`,
