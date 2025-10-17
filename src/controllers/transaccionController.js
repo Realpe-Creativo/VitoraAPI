@@ -28,39 +28,31 @@ const mapEstado = (wompiStatus) => {
 };
 
 // Verificación de firma de evento (checksum)
-function verifyWompiEvent(eventBody, headerChecksum) {
+function verifyWompiEvent(body) {
   if (!WOMPI_EVENT_SECRET) return false;
+  console.log("SACA EL EVENT SECRET ", WOMPI_EVENT_SECRET)
+  const sig = body?.signature;
+  console.log("OBTIENE EL SIGNATURE ", JSON.stringify(sig, null, 2));
+  if (!sig || !Array.isArray(sig.properties) || !body.timestamp || !sig.checksum) return false;
 
-  const sig = eventBody?.signature;
-  if (!sig || !Array.isArray(sig.properties) || !sig.timestamp) return false;
+  console.log("PASA DE LA VALIDACIÓN DE DATOS");
 
-  // 1) Concatenar valores de las propiedades en ORDEN
+  // 1️⃣ concatenar valores de las propiedades en orden
   const valuesConcat = sig.properties.map((path) => {
-    // path tipo "transaction.status" dentro de data
     const parts = path.split('.');
-    let cur = eventBody?.data;
+    let cur = body?.data;
     for (const p of parts) cur = cur?.[p];
-    if (cur === undefined || cur === null) cur = ''; // si falta, concatena vacío
-    return String(cur);
+    return cur === undefined || cur === null ? '' : String(cur);
   }).join('');
 
-  // 2) + timestamp
-  const withTs = `${valuesConcat}${sig.timestamp}`;
+  // 2️⃣ agregar timestamp y el secreto de evento
+  const strToHash = `${valuesConcat}${body.timestamp}${WOMPI_EVENT_SECRET}`;
 
-  // 3) + secreto
-  const finalStr = `${withTs}${WOMPI_EVENT_SECRET}`;
+  // 3️⃣ calcular SHA256
+  const computed = crypto.createHash('sha256').update(strToHash).digest('hex');
 
-  // 4) SHA256 (hex mayúsculas segun doc; comparamos case-insensitive)
-  const computed = crypto.createHash('sha256').update(finalStr).digest('hex');
-
-  const checksumFromHeader = headerChecksum || '';
-  const checksumFromBody = eventBody?.signature?.checksum || '';
-
-  // Acepta match con header o con body
-  return (
-      computed.toLowerCase() === String(checksumFromHeader).toLowerCase() ||
-      computed.toLowerCase() === String(checksumFromBody).toLowerCase()
-  );
+  // 4️⃣ comparar con el checksum del body (case-insensitive)
+  return computed.toLowerCase() === String(sig.checksum).toLowerCase();
 }
 
 /**
@@ -440,97 +432,78 @@ const consultarTransaccionByOrden = async (req, res, next) => {
 };
 
 /**
- * Webhook de Wompi - Eventos
+ * Webhook Wompi (eventos)
  * @route POST /transacciones/notificacion_pago
  */
 const notificacion_pago = async (req, res) => {
-  // IMPORTANTE: si usas body-parser/json normal está bien para Wompi
-  // (el checksum NO es HMAC del raw body; se calcula con fields + timestamp + secret)
-  const wompiChecksumHeader = req.header('X-Event-Checksum');
-
-  // 1) Validar firma del evento
-  if (!verifyWompiEvent(req.body, wompiChecksumHeader)) {
-    // Responder 200 (opcionalmente 400) — recomendación: 400 para que Wompi reintente
-    return res.status(400).json({message: 'Invalid Wompi event signature'});
+  // Verificar firma
+  if (!verifyWompiEvent(req.body)) {
+    return res.status(400).json({ message: 'Firma inválida de evento Wompi' });
   }
 
-  // 2) Filtrar tipo de evento
   const eventType = req.body?.event;
   if (eventType !== 'transaction.updated') {
-    // Responder 200 para evitar reintentos: evento no relevante para este endpoint
-    return res.status(200).json({message: 'Event ignored', event: eventType});
+    // ignorar otros eventos
+    return res.status(200).json({ message: 'Evento ignorado', event: eventType });
   }
 
-  // 3) Extraer datos de la transacción
+  // 2️⃣ Extraer info relevante
   const tx = req.body?.data?.transaction || {};
   const reference = tx?.reference;
-  const wompiStatus = tx?.status; // APPROVED, DECLINED, VOIDED, ERROR, PENDING
+  const wompiStatus = tx?.status;
   const amountInCents = tx?.amount_in_cents;
 
   if (!reference) {
-    return res.status(400).json({message: 'Missing reference in event'});
+    return res.status(400).json({ message: 'Referencia no encontrada en el evento' });
   }
 
   const t = await sequelize.transaction();
   try {
-    // 4) Buscar tu transaccion por referencia
-    const transaccion = await Transaccion.findOne({where: {referencia: reference}, transaction: t});
+    // 3️⃣ Buscar transacción local
+    const transaccion = await Transaccion.findOne({ where: { referencia: reference }, transaction: t });
     if (!transaccion) {
-      // No existe en tu sistema; responde 200 para no reintentar eternamente
       await t.commit();
-      return res.status(200).json({message: 'Reference not found locally; ignoring', reference});
+      return res.status(200).json({ message: 'Referencia no registrada localmente. Ignorada.', reference });
     }
 
-    // Estado actual
     const estadoActual = transaccion.ultimo_estado
-        ? await EstadoTransaccion.findByPk(transaccion.ultimo_estado, {transaction: t})
+        ? await EstadoTransaccion.findByPk(transaccion.ultimo_estado, { transaction: t })
         : null;
 
     const nuevoEstadoNombre = mapEstado(wompiStatus);
     const ESTADOS_FINALES = ['APROBADO', 'RECHAZADO', 'ANULADO'];
 
-    // 5) Idempotencia: si ya está final, no mover
+    // 4️⃣ Evitar reprocesar finales
     if (estadoActual && ESTADOS_FINALES.includes(String(estadoActual.nombre_estado).toUpperCase())) {
       await t.commit();
       return res.status(200).json({
-        message: `Transaction already final: ${estadoActual.nombre_estado}`
+        message: `Transacción ya finalizada: ${estadoActual.nombre_estado}`
       });
     }
 
-    // 6) Si no hay cambio, salir
-    if (estadoActual && String(estadoActual.nombre_estado).toUpperCase() === String(nuevoEstadoNombre).toUpperCase()) {
+    // 5️⃣ Evitar duplicados del mismo estado
+    if (estadoActual && estadoActual.nombre_estado.toUpperCase() === nuevoEstadoNombre.toUpperCase()) {
       await t.commit();
-      return res.status(200).json({message: 'No state change'});
+      return res.status(200).json({ message: 'Estado repetido, sin cambios' });
     }
 
-    // 7) Registrar nuevo estado + payload
+    // 6️⃣ Crear nuevo estado
     const nuevoEstado = await EstadoTransaccion.create({
       id_transaccion: transaccion.id_transaccion,
       nombre_estado: nuevoEstadoNombre,
       fecha_hora_estado: new Date(),
       payload_json: JSON.stringify(req.body),
       valor_reportado_centavos: amountInCents ?? null
-    }, {transaction: t});
+    }, { transaction: t });
 
-    await transaccion.update({
-      ultimo_estado: nuevoEstado.id_estado
-    }, {transaction: t});
-
-    // 8) Si quedó aprobado, marcar la orden como pagada
-    if (nuevoEstadoNombre.toUpperCase() === 'APROBADO') {
-      await OrdenPago.update(
-          {estado: 'PAGADO'},
-          {where: {order_id: transaccion.id_orden_pago}, transaction: t}
-      );
-    }
+    await transaccion.update({ ultimo_estado: nuevoEstado.id_estado }, { transaction: t });
 
     await t.commit();
-    return res.status(200).json({message: 'OK', state: nuevoEstadoNombre});
+    return res.status(200).json({ message: 'OK', state: nuevoEstadoNombre });
   } catch (err) {
     await t.rollback();
-    console.error('Webhook Wompi error:', err);
-    // 500 hace que Wompi reintente (hasta 3 veces en 24h)
-    return res.status(500).json({message: 'Internal error'});
+    console.error('Error webhook Wompi:', err);
+    return res.status(500).json({ message: 'Error interno procesando webhook' });
   }
 };
 
