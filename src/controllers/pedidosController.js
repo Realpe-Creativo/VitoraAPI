@@ -1,14 +1,17 @@
 // controllers/pedidoController.js
 const { Op } = require('sequelize');
 const { sequelize } = require('../config/database'); // ajusta la ruta
-const Pedido = require('../models/Pedido');          // ajusta la ruta
+const Pedido = require('../models/Pedidos');          // ajusta la ruta
 // Opcional: si quieres incluirlos en las respuestas
-let Cliente, Transaccion;
+let Cliente, Transaccion, EstadoTransaccion;
 try {
   Cliente = require('../models/Cliente');            // ajusta la ruta si lo usas
 } catch {}
 try {
   Transaccion = require('../models/Transaccion');    // ajusta la ruta si lo usas
+} catch {}
+try {
+  EstadoTransaccion = require('../models/EstadoTransaccion');    // ajusta la ruta si lo usas
 } catch {}
 
 const ESTADOS_VALIDOS = [
@@ -31,14 +34,6 @@ const parseProductos = (value) => {
     } catch {}
   }
   throw new Error('El campo "productos" debe ser un JSON válido (objeto o arreglo).');
-};
-
-// Helper: include asociaciones si están disponibles
-const buildIncludes = () => {
-  const inc = [];
-  if (Cliente) inc.push({ model: Cliente, as: 'cliente' });
-  if (Transaccion) inc.push({ model: Transaccion, as: 'transaccion' });
-  return inc;
 };
 
 const createPedido = async (req, res, next) => {
@@ -106,23 +101,77 @@ const createPedido = async (req, res, next) => {
   }
 };
 
+// Incluye cliente y transacción con su estadoActual
+const buildIncludes = () => ([
+  {
+    model: Cliente,
+    as: 'cliente',
+    attributes: ['id','nombre_cliente','identificacion','tipo_identificacion','email','phone']
+  },
+  {
+    model: Transaccion,
+    as: 'transaccion',
+    include: [
+      {
+        model: EstadoTransaccion,
+        as: 'estadoActual',
+        attributes: ['id_estado','nombre_estado','fecha_hora_estado']
+      }
+    ]
+  }
+]);
+
+/**
+ * GET /pedidos
+ * Query params:
+ *  - cliente_id?: number
+ *  - transaccion_id?: number
+ *  - limit?: number (default 50, max 100)
+ *  - offset?: number (default 0)
+ *  - orderBy?: 'creado_en' | 'actualizado_en' | 'id_pedido'
+ *  - orderDir?: 'ASC' | 'DESC'
+ */
 const getAllPedidos = async (req, res, next) => {
   try {
-    const { cliente_id, transaccion_id, limit = 50, offset = 0 } = req.query;
+    const {
+      cliente_id,
+      transaccion_id,
+      limit = 50,
+      offset = 0,
+      orderBy = 'creado_en',
+      orderDir = 'DESC'
+    } = req.query;
 
+    // Filtros
     const where = {};
-    if (cliente_id) where.cliente_id = cliente_id;
-    if (transaccion_id) where.transaccion_id = transaccion_id;
+    if (cliente_id) where.cliente_id = Number(cliente_id);
+    if (transaccion_id) where.transaccion_id = Number(transaccion_id);
 
-    const pedidos = await Pedido.findAll({
+    // Paginación segura
+    const _limit = Math.min(Number(limit) || 50, 100);
+    const _offset = Number(offset) || 0;
+
+    // Ordenamiento seguro
+    const ALLOWED_ORDER_BY = new Set(['creado_en', 'actualizado_en', 'id_pedido']);
+    const orderField = ALLOWED_ORDER_BY.has(String(orderBy)) ? orderBy : 'creado_en';
+    const orderDirection = String(orderDir).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    // Usa findAndCountAll para devolver total + filas
+    const result = await Pedido.findAndCountAll({
       where,
       include: buildIncludes(),
-      order: [['creado_en', 'DESC']],
-      limit: Number(limit),
-      offset: Number(offset)
+      order: [[orderField, orderDirection]],
+      limit: _limit,
+      offset: _offset
     });
 
-    return res.json(pedidos);
+    // Respuesta con metadatos (útil para DataTable)
+    return res.json({
+      count: result.count,
+      rows: result.rows,
+      limit: _limit,
+      offset: _offset
+    });
   } catch (err) {
     next(err);
   }

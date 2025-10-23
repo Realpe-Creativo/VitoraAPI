@@ -52,10 +52,15 @@ router.use(authenticateToken);
  * @desc Listar pedidos (con filtros opcionales por cliente_id y/o transaccion_id)
  * @access Private
  */
-router.get('/',
+router.get(
+    '/',
     [
       query('cliente_id').optional().isInt({ min: 1 }).withMessage('cliente_id debe ser entero'),
       query('transaccion_id').optional().isInt({ min: 1 }).withMessage('transaccion_id debe ser entero'),
+      query('limit').optional().isInt({ min: 1, max: 100 }),
+      query('offset').optional().isInt({ min: 0 }),
+      query('orderBy').optional().isIn(['creado_en', 'actualizado_en', 'id_pedido']),
+      query('orderDir').optional().isIn(['ASC', 'DESC']),
       validate
     ],
     authorizeRole(['ADMIN', 'USER']),
@@ -133,6 +138,39 @@ router.put('/:id',
     authorizeRole(['ADMIN', 'USER']),
     pedidoController.updatePedido
 );
+
+/**
+ * @route PUT /pedidos/:id
+ * @desc Actualizar estado de un pedido
+ * @access Private
+ */
+router.put(
+    '/:id/estado',
+    authenticateToken,
+    authorizeRole(['ADMIN', 'USER']),
+    [
+      param('id').isInt({ min: 1 }).withMessage('id debe ser entero'),
+      body('estado')
+          .isString().withMessage('estado es obligatorio')
+          .custom((value) => {
+            const allowed = [
+              'INICIADO',
+              'PAGO_PENDIENTE',
+              'PAGADO',
+              'EN_PREPARACION',
+              'ENVIADO',
+              'CANCELADO'
+            ];
+            if (!allowed.includes(String(value).toUpperCase())) {
+              throw new Error(`Estado inválido. Permitidos: ${allowed.join(', ')}`);
+            }
+            return true;
+          }),
+      validate
+    ],
+    pedidoController.updateEstadoPedido
+);
+
 
 /**
  * @route PUT /pedidos/:id/estado

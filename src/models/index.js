@@ -37,6 +37,20 @@ const setupAssociations = () => {
     foreignKey: 'rol',
     as: 'rolUsuario'
   });
+
+  Pedidos.belongsTo(Cliente, {
+    as: 'cliente',
+    foreignKey: 'cliente_id'
+  });
+  Cliente.hasMany(Pedidos, {
+    as: 'pedidos',
+    foreignKey: 'cliente_id'
+  });
+
+  Pedidos.belongsTo(Transaccion, {
+    as: 'transaccion',
+    foreignKey: 'transaccion_id'
+  });
 };
 
 // Function to sync all models with database

@@ -3,6 +3,7 @@ const {sequelize} = require('../config/database');
 const axios = require('axios');
 const moment = require('moment');
 const crypto = require('crypto');
+const {sendOrderApprovedEmails} = require('../utils/orderEmails');
 
 
 const WOMPI_PUBLIC_KEY = process.env.WOMPI_PUBLIC_KEY;
@@ -40,7 +41,7 @@ const mapEstadoPedido = (s) => {
 
 // Estados finales para Transaccion y Pedido
 const ESTADOS_FINALES_TX = ['APROBADO', 'RECHAZADO', 'ANULADO'];
-const ESTADOS_FINALES_PED = ['PAGADO', 'CANCELADO'];
+const ESTADOS_FINALES_PED = ['PAGADO'];
 
 // Verificación de firma de evento (checksum)
 function verifyWompiEvent(body) {
@@ -52,7 +53,6 @@ function verifyWompiEvent(body) {
 
   console.log("PASA DE LA VALIDACIÓN DE DATOS");
 
-  // 1️⃣ concatenar valores de las propiedades en orden
   const valuesConcat = sig.properties.map((path) => {
     const parts = path.split('.');
     let cur = body?.data;
@@ -60,13 +60,9 @@ function verifyWompiEvent(body) {
     return cur === undefined || cur === null ? '' : String(cur);
   }).join('');
 
-  // 2️⃣ agregar timestamp y el secreto de evento
   const strToHash = `${valuesConcat}${body.timestamp}${WOMPI_EVENT_SECRET}`;
-
-  // 3️⃣ calcular SHA256
   const computed = crypto.createHash('sha256').update(strToHash).digest('hex');
 
-  // 4️⃣ comparar con el checksum del body (case-insensitive)
   return computed.toLowerCase() === String(sig.checksum).toLowerCase();
 }
 
@@ -76,15 +72,83 @@ function verifyWompiEvent(body) {
  */
 const getAllTransacciones = async (req, res, next) => {
   try {
-    const transacciones = await Transaccion.findAll({
+    // Query params
+    const {
+      limit = 20,
+      offset = 0,
+      orderBy = 'id_transaccion',
+      orderDir = 'DESC',
+      referencia,              // opcional: filtrar por referencia exacta o parcial
+      id_wompi,                // opcional: filtrar por id_wompi exacto
+      estado                   // opcional: filtrar por estado actual (APROBADO/RECHAZADO/EN PROCESO/ANULADO)
+    } = req.query;
+
+    // Filtros
+    const where = {};
+    if (referencia) {
+      // si viene numérica exacta: igual; si no, LIKE
+      if (/^\d+$/.test(String(referencia))) {
+        where.referencia = String(referencia);
+      } else {
+        where.referencia = {[Op.like]: `%${referencia}%`};
+      }
+    }
+    if (id_wompi) {
+      where.id_wompi = String(id_wompi);
+    }
+
+    // Filtro por estado (sobre el include)
+    const whereEstado =
+        estado ? {nombre_estado: String(estado).toUpperCase()} : undefined;
+
+    // Orden
+    // Permitimos:
+    // - id_transaccion | referencia | valor_de_pago (columnas locales)
+    // - creado_en/actualizado_en -> los mapeamos a fecha_hora_estado del estadoActual (si es lo que buscas)
+    let order = [];
+    const dir = String(orderDir).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    switch (orderBy) {
+      case 'referencia':
+        order = [['referencia', dir]];
+        break;
+      case 'valor_de_pago':
+        order = [['valor_de_pago', dir]];
+        break;
+      case 'creado_en':
+      case 'actualizado_en':
+        // No hay timestamps en Transaccion (timestamps:false),
+        // ordenamos por la fecha del último estado (estadoActual)
+        order = [[{model: EstadoTransaccion, as: 'estadoActual'}, 'fecha_hora_estado', dir]];
+        break;
+      case 'id_transaccion':
+      default:
+        order = [['id_transaccion', dir]];
+        break;
+    }
+
+    const result = await Transaccion.findAndCountAll({
+      where,
       include: [
-        {model: OrdenPago, as: 'ordenPago'},
-        {model: EstadoTransaccion, as: 'estadoActual'}
-      ]
+        {
+          model: EstadoTransaccion,
+          as: 'estadoActual',
+          required: false,
+          where: whereEstado
+        }
+      ],
+      order,
+      limit: Number(limit),
+      offset: Number(offset),
+      distinct: true // para que count sea correcto con includes
     });
-    res.json(transacciones);
+
+    return res.json({
+      rows: result.rows,
+      count: result.count
+    });
   } catch (error) {
-    /*next(error);*/
+    next(error);
   }
 };
 
@@ -144,7 +208,7 @@ const createTransaccion = async (req, res, next) => {
 
     if (!WOMPI_PUBLIC_KEY || !WOMPI_INTEGRITY_SECRET) {
       await t.rollback();
-      return res.status(500).json({ message: 'WOMPI_PUBLIC_KEY o WOMPI_INTEGRITY_SECRET no configurados' });
+      return res.status(500).json({message: 'WOMPI_PUBLIC_KEY o WOMPI_INTEGRITY_SECRET no configurados'});
     }
 
     // 1) Siguiente referencia única
@@ -152,7 +216,7 @@ const createTransaccion = async (req, res, next) => {
     const nextRef = last ? (Number(last) + 1) : 1000000000;
 
     // 2) Asegura Cliente (idempotente simple por identificación)
-    let cliente = await Cliente.findOne({ where: { identificacion: document_number }, transaction: t });
+    let cliente = await Cliente.findOne({where: {identificacion: document_number}, transaction: t});
     if (!cliente) {
       cliente = await Cliente.create({
         identificacion: document_number,
@@ -160,22 +224,22 @@ const createTransaccion = async (req, res, next) => {
         nombre_cliente: [name1, last_name1].filter(Boolean).join(' ') || 'N/A',
         email,
         phone
-      }, { transaction: t });
+      }, {transaction: t});
     }
 
     // 3) Crea Transacción local
     const transaccion = await Transaccion.create({
       referencia: nextRef,
       valor_de_pago
-    }, { transaction: t });
+    }, {transaction: t});
 
     const estadoTransaccion = await EstadoTransaccion.create({
       id_transaccion: transaccion.id_transaccion,
       nombre_estado: estado_inicial || 'EN PROCESO',
       fecha_hora_estado: new Date()
-    }, { transaction: t });
+    }, {transaction: t});
 
-    await transaccion.update({ ultimo_estado: estadoTransaccion.id_estado }, { transaction: t });
+    await transaccion.update({ultimo_estado: estadoTransaccion.id_estado}, {transaction: t});
 
     // 4) 🔥 Crea el Pedido en estado PAGO_PENDIENTE
     //    productos puede venir como objeto/array o string JSON: lo normalizamos
@@ -185,12 +249,12 @@ const createTransaccion = async (req, res, next) => {
         productosJSON = JSON.parse(productosJSON);
       } catch (e) {
         await t.rollback();
-        return res.status(400).json({ message: 'El campo "productos" debe ser JSON válido.' });
+        return res.status(400).json({message: 'El campo "productos" debe ser JSON válido.'});
       }
     }
     if (productosJSON == null || (typeof productosJSON !== 'object')) {
       await t.rollback();
-      return res.status(400).json({ message: 'El campo "productos" es requerido y debe ser objeto/arreglo JSON.' });
+      return res.status(400).json({message: 'El campo "productos" es requerido y debe ser objeto/arreglo JSON.'});
     }
 
     console.log("cliente_id", cliente.id);
@@ -212,7 +276,7 @@ const createTransaccion = async (req, res, next) => {
       notas: notas || null,
       creado_en: new Date(),
       actualizado_en: new Date()
-    }, { transaction: t });
+    }, {transaction: t});
 
     // ===========================
     // 5) Parámetros Wompi Checkout
@@ -237,13 +301,13 @@ const createTransaccion = async (req, res, next) => {
       'amount-in-cents': amountInCents,
       'reference': reference,
       'signature:integrity': signatureHex,
-      ...(WOMPI_REDIRECT_URL ? { 'redirect-url': WOMPI_REDIRECT_URL } : {}),
-      ...(expirationTime ? { 'expiration-time': expirationTime } : {}),
-      ...(email ? { 'customer-data:email': email } : {}),
-      ...(name1 || last_name1 ? { 'customer-data:full-name': [name1, last_name1].filter(Boolean).join(' ') } : {}),
-      ...(phone ? { 'customer-data:phone-number': phone } : {}),
-      ...(document_number ? { 'customer-data:legal-id': document_number } : {}),
-      ...(document_type ? { 'customer-data:legal-id-type': document_type } : {})
+      ...(WOMPI_REDIRECT_URL ? {'redirect-url': WOMPI_REDIRECT_URL} : {}),
+      ...(expirationTime ? {'expiration-time': expirationTime} : {}),
+      ...(email ? {'customer-data:email': email} : {}),
+      ...(name1 || last_name1 ? {'customer-data:full-name': [name1, last_name1].filter(Boolean).join(' ')} : {}),
+      ...(phone ? {'customer-data:phone-number': phone} : {}),
+      ...(document_number ? {'customer-data:legal-id': document_number} : {}),
+      ...(document_type ? {'customer-data:legal-id-type': document_type} : {})
     };
 
     await t.commit();
@@ -390,135 +454,174 @@ const consultarTransaccionByOrden = async (req, res, next) => {
  * body: { referencia: "100000123" }
  */
 const consultarEstadoTransaccion = async (req, res, next) => {
-  const t = await sequelize.transaction();
-  try {
-    const { referencia } = req.body;
+      const t = await sequelize.transaction();
+      try {
+        const {referencia} = req.body;
 
-    if (!referencia) {
-      await t.rollback();
-      return res.status(400).json({ message: 'La referencia es obligatoria.' });
-    }
-
-    if (!WOMPI_API_BASE || !WOMPI_PUBLIC_KEY) {
-      await t.rollback();
-      return res.status(500).json({ message: 'Faltan variables WOMPI_API_BASE o WOMPI_PUBLIC_KEY.' });
-    }
-
-    const looksLikeId = String(referencia).includes('-');
-    const url = looksLikeId
-        ? `${WOMPI_API_BASE}/v1/transactions/${encodeURIComponent(referencia)}`
-        : `${WOMPI_API_BASE}/v1/transactions?reference=${encodeURIComponent(referencia)}`;
-
-    const wompiResp = await axios.get(url, {
-      timeout: WOMPI_API_TIMEOUT_MS,
-      headers: {
-        Authorization: `Bearer ${WOMPI_PUBLIC_KEY}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    const raw = wompiResp?.data;
-    const rawData = raw?.data;
-    const txList = Array.isArray(rawData) ? rawData : (rawData ? [rawData] : []);
-
-    if (txList.length === 0) {
-      await t.rollback();
-      return res.status(404).json({
-        message: 'Wompi no encontró transacciones con ese identificador/referencia.',
-        wompi_raw: raw,
-        endpoint: url,
-      });
-    }
-
-    // tomar la más reciente
-    const byUpdated = [...txList].sort((a, b) => {
-      const ua = new Date(a.updated_at || a.finalized_at || a.created_at || 0).getTime();
-      const ub = new Date(b.updated_at || b.finalized_at || b.created_at || 0).getTime();
-      return ub - ua;
-    });
-    const tx = byUpdated[0];
-
-    // usar SIEMPRE la reference del objeto elegido
-    const referenciaPropia = tx.reference;
-    const wompiStatus = String(tx.status || '').toUpperCase();
-    const nuevoEstadoNombre = mapEstadoTransaccion(wompiStatus);
-    const nuevoEstadoPedido = mapEstadoPedido(wompiStatus);
-
-    // buscar transacción local por tu referencia (comercio)
-    const transaccion = await Transaccion.findOne({ where: { referencia: referenciaPropia }, transaction: t });
-
-    if (!transaccion) {
-      await t.commit();
-      return res.status(200).json({
-        message: 'Referencia no encontrada en BD local. Se retorna estado desde Wompi.',
-        wompi: tx,
-        wompi_list: byUpdated,
-      });
-    }
-
-    const estadoActual = transaccion.ultimo_estado
-        ? await EstadoTransaccion.findByPk(transaccion.ultimo_estado, { transaction: t })
-        : null;
-
-    // si transacción ya final, no tocar (pero igual intentaremos reflejar pedido si no está final)
-    const txYaFinal = estadoActual && ESTADOS_FINALES_TX.includes(String(estadoActual.nombre_estado).toUpperCase());
-
-    if (!txYaFinal) {
-      // crear nuevo estado si cambió
-      if (!estadoActual || String(estadoActual.nombre_estado).toUpperCase() !== nuevoEstadoNombre.toUpperCase()) {
-        const nuevoEstado = await EstadoTransaccion.create({
-          id_transaccion: transaccion.id_transaccion,
-          nombre_estado: nuevoEstadoNombre,
-          fecha_hora_estado: new Date(),
-          payload_json: JSON.stringify(tx),
-          valor_reportado_centavos: tx.amount_in_cents ?? null,
-        }, { transaction: t });
-
-        await transaccion.update({
-          ultimo_estado: nuevoEstado.id_estado,
-          id_wompi: tx.id,
-        }, { transaction: t });
-      }
-    }
-
-    // === Actualizar Pedido ligado a esta transacción ===
-    const pedido = await Pedido.findOne({
-      where: { transaccion_id: transaccion.id_transaccion },
-      transaction: t
-    });
-
-    if (pedido) {
-      const pedidoFinal = ESTADOS_FINALES_PED.includes(String(pedido.estado).toUpperCase());
-      if (!pedidoFinal) {
-        // sólo actualizamos si cambia
-        if (String(pedido.estado).toUpperCase() !== nuevoEstadoPedido.toUpperCase()) {
-          await pedido.update({
-            estado: nuevoEstadoPedido,
-            actualizado_en: new Date()
-          }, { transaction: t });
+        if (!referencia) {
+          await t.rollback();
+          return res.status(400).json({message: 'La referencia es obligatoria.'});
         }
+
+        if (!WOMPI_API_BASE || !WOMPI_PUBLIC_KEY) {
+          await t.rollback();
+          return res.status(500).json({message: 'Faltan variables WOMPI_API_BASE o WOMPI_PUBLIC_KEY.'});
+        }
+
+        const looksLikeId = String(referencia).includes('-');
+        const url = looksLikeId
+            ? `${WOMPI_API_BASE}/v1/transactions/${encodeURIComponent(referencia)}`
+            : `${WOMPI_API_BASE}/v1/transactions?reference=${encodeURIComponent(referencia)}`;
+
+        const wompiResp = await axios.get(url, {
+          timeout: WOMPI_API_TIMEOUT_MS,
+          headers: {
+            Authorization: `Bearer ${WOMPI_PUBLIC_KEY}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        const raw = wompiResp?.data;
+        const rawData = raw?.data;
+        const txList = Array.isArray(rawData) ? rawData : (rawData ? [rawData] : []);
+
+        if (txList.length === 0) {
+          await t.rollback();
+          return res.status(404).json({
+            message: 'Wompi no encontró transacciones con ese identificador/referencia.',
+            wompi_raw: raw,
+            endpoint: url,
+          });
+        }
+
+        // tomar la más reciente
+        const byUpdated = [...txList].sort((a, b) => {
+          const ua = new Date(a.updated_at || a.finalized_at || a.created_at || 0).getTime();
+          const ub = new Date(b.updated_at || b.finalized_at || b.created_at || 0).getTime();
+          return ub - ua;
+        });
+        const tx = byUpdated[0];
+
+        // usar SIEMPRE la reference del objeto elegido
+        const referenciaPropia = tx.reference;
+        const wompiStatus = String(tx.status || '').toUpperCase();
+        const nuevoEstadoNombre = mapEstadoTransaccion(wompiStatus);
+        const nuevoEstadoPedido = mapEstadoPedido(wompiStatus);
+
+        // buscar transacción local por tu referencia (comercio)
+        const transaccion = await Transaccion.findOne({where: {referencia: referenciaPropia}, transaction: t});
+
+        if (!transaccion) {
+          await t.commit();
+          return res.status(200).json({
+            message: 'Referencia no encontrada en BD local. Se retorna estado desde Wompi.',
+            wompi: tx,
+            wompi_list: byUpdated,
+          });
+        }
+
+        const estadoActual = transaccion.ultimo_estado
+            ? await EstadoTransaccion.findByPk(transaccion.ultimo_estado, {transaction: t})
+            : null;
+
+        // si transacción ya final, no tocar (pero igual intentaremos reflejar pedido si no está final)
+        const txYaFinal = estadoActual && ESTADOS_FINALES_TX.includes(String(estadoActual.nombre_estado).toUpperCase());
+
+        if (!txYaFinal) {
+          // crear nuevo estado si cambió
+          if (!estadoActual || String(estadoActual.nombre_estado).toUpperCase() !== nuevoEstadoNombre.toUpperCase()) {
+            const nuevoEstado = await EstadoTransaccion.create({
+              id_transaccion: transaccion.id_transaccion,
+              nombre_estado: nuevoEstadoNombre,
+              fecha_hora_estado: new Date(),
+              payload_json: JSON.stringify(tx),
+              valor_reportado_centavos: tx.amount_in_cents ?? null,
+            }, {transaction: t});
+
+            await transaccion.update({
+              ultimo_estado: nuevoEstado.id_estado,
+              id_wompi: tx.id,
+            }, {transaction: t});
+          }
+        }
+
+        // === Actualizar Pedido ligado a esta transacción ===
+        const pedido = await Pedidos.findOne({
+          where: {transaccion_id: transaccion.id_transaccion},
+          transaction: t
+        });
+
+        if (pedido) {
+          const pedidoFinal = ESTADOS_FINALES_PED.includes(String(pedido.estado).toUpperCase());
+          if (!pedidoFinal) {
+
+            const antes = pedido.estado;
+            const despues = nuevoEstadoPedido;
+            // solo actualizamos si cambia
+            if (antes !== despues) {
+              await pedido.update({
+                estado: nuevoEstadoPedido,
+                actualizado_en: new Date()
+              }, {transaction: t});
+            }
+            // === Disparo de correos SOLO cuando transiciona a PAGADO y no ha enviado el correo antes ===
+            if (despues === 'PAGADO' && !pedido.envio_correo) {
+
+              let cliente = null;
+              let items = [];
+              try {
+                if (pedido.cliente_id && Cliente) {
+                  cliente = await Cliente.findByPk(pedido.cliente_id, {transaction: t});
+                }
+                items = pedido.productos;
+              } catch (e) {
+                console.warn('[consultarEstadoTransaccion] No se pudo cargar cliente/ítems para email:', e?.message || e);
+              }
+
+              // Intenta enviar fuera de la transacción para no bloquear el commit por SMTP
+              // (Aquí ya hiciste el update, pero aún no commit. Puedes mover el envío después del commit si prefieres.)
+              try {
+                await sendOrderApprovedEmails({
+                  pedido,
+                  transaccion,
+                  cliente,
+                  items,
+                  adminEmail: process.env.ADMIN_EMAIL,
+                  logoPath: './src/assets/logo_verde.png',
+                });
+
+                await pedido.update({
+                  envio_correo: true
+                }, {transaction: t});
+
+              } catch (e) {
+                console.error('[consultarEstadoTransaccion] Error enviando correos:', e?.message || e);
+              }
+            }
+          }
+        }
+
+        await t.commit();
+
+        return res.status(200).json({
+          message: 'Estado actualizado correctamente.',
+          nuevo_estado: nuevoEstadoNombre,
+          pedido_estado: pedido ? pedido.estado : null,
+          wompi: tx,
+          wompi_list: byUpdated,
+        });
+
+      } catch
+          (error) {
+        await t.rollback();
+        console.error('Error al consultar y actualizar estado (Wompi):', error?.response?.data || error.message);
+        return res.status(500).json({
+          message: 'Error al consultar o actualizar estado.',
+          detail: error?.response?.data || error.message,
+        });
       }
     }
-
-    await t.commit();
-
-    return res.status(200).json({
-      message: 'Estado actualizado correctamente.',
-      nuevo_estado: nuevoEstadoNombre,
-      pedido_estado: pedido ? pedido.estado : null,
-      wompi: tx,
-      wompi_list: byUpdated,
-    });
-
-  } catch (error) {
-    await t.rollback();
-    console.error('Error al consultar y actualizar estado (Wompi):', error?.response?.data || error.message);
-    return res.status(500).json({
-      message: 'Error al consultar o actualizar estado.',
-      detail: error?.response?.data || error.message,
-    });
-  }
-};
+;
 
 /**
  * Webhook Wompi (eventos)
@@ -527,12 +630,12 @@ const consultarEstadoTransaccion = async (req, res, next) => {
 const notificacion_pago = async (req, res) => {
   // Verificar firma del evento (tu función ya implementada)
   if (!verifyWompiEvent(req.body)) {
-    return res.status(400).json({ message: 'Firma inválida de evento Wompi' });
+    return res.status(400).json({message: 'Firma inválida de evento Wompi'});
   }
 
   const eventType = req.body?.event;
   if (eventType !== 'transaction.updated') {
-    return res.status(200).json({ message: 'Evento ignorado', event: eventType });
+    return res.status(200).json({message: 'Evento ignorado', event: eventType});
   }
 
   const tx = req.body?.data?.transaction || {};
@@ -542,19 +645,19 @@ const notificacion_pago = async (req, res) => {
   const amountInCents = tx?.amount_in_cents;
 
   if (!reference) {
-    return res.status(400).json({ message: 'Referencia no encontrada en el evento' });
+    return res.status(400).json({message: 'Referencia no encontrada en el evento'});
   }
 
   const t = await sequelize.transaction();
   try {
-    const transaccion = await Transaccion.findOne({ where: { referencia: reference }, transaction: t });
+    const transaccion = await Transaccion.findOne({where: {referencia: reference}, transaction: t});
     if (!transaccion) {
       await t.commit();
-      return res.status(200).json({ message: 'Referencia no registrada localmente. Ignorada.', reference });
+      return res.status(200).json({message: 'Referencia no registrada localmente. Ignorada.', reference});
     }
 
     const estadoActual = transaccion.ultimo_estado
-        ? await EstadoTransaccion.findByPk(transaccion.ultimo_estado, { transaction: t })
+        ? await EstadoTransaccion.findByPk(transaccion.ultimo_estado, {transaction: t})
         : null;
 
     const nuevoEstadoNombre = mapEstadoTransaccion(wompiStatus);
@@ -570,37 +673,79 @@ const notificacion_pago = async (req, res) => {
           fecha_hora_estado: new Date(),
           payload_json: JSON.stringify(req.body), // guardamos evento completo
           valor_reportado_centavos: amountInCents ?? null
-        }, { transaction: t });
+        }, {transaction: t});
 
-        await transaccion.update({ ultimo_estado: nuevoEstado.id_estado, id_wompi }, { transaction: t });
+        await transaccion.update({ultimo_estado: nuevoEstado.id_estado, id_wompi}, {transaction: t});
       }
     }
 
     // === Actualizar Pedido ligado ===
-    const pedido = await Pedido.findOne({
-      where: { transaccion_id: transaccion.id_transaccion },
+    const pedido = await Pedidos.findOne({
+      where: {transaccion_id: transaccion.id_transaccion},
       transaction: t
     });
 
     if (pedido) {
       const pedidoFinal = ESTADOS_FINALES_PED.includes(String(pedido.estado).toUpperCase());
       if (!pedidoFinal) {
-        if (String(pedido.estado).toUpperCase() !== nuevoEstadoPedido.toUpperCase()) {
+
+        const antes = pedido.estado;
+        const despues = nuevoEstadoPedido;
+        // solo actualizamos si cambia
+        if (antes !== despues) {
           await pedido.update({
             estado: nuevoEstadoPedido,
             actualizado_en: new Date()
-          }, { transaction: t });
+          }, {transaction: t});
+        }
+        // === Disparo de correos SOLO cuando transiciona a PAGADO y no ha enviado el correo antes ===
+        if (despues === 'PAGADO' && !pedido.envio_correo) {
+
+          let cliente = null;
+          let items = [];
+          try {
+            if (pedido.cliente_id && Cliente) {
+              cliente = await Cliente.findByPk(pedido.cliente_id, {transaction: t});
+            }
+            items = pedido.productos;
+          } catch (e) {
+            console.warn('[consultarEstadoTransaccion] No se pudo cargar cliente/ítems para email:', e?.message || e);
+          }
+
+          // Intenta enviar fuera de la transacción para no bloquear el commit por SMTP
+          // (Aquí ya hiciste el update, pero aún no commit. Puedes mover el envío después del commit si prefieres.)
+          try {
+            await sendOrderApprovedEmails({
+              pedido,
+              transaccion,
+              cliente,
+              items,
+              adminEmail: process.env.ADMIN_EMAIL,
+              logoPath: './src/assets/logo_verde.png',
+            });
+
+            await pedido.update({
+              envio_correo: true
+            }, {transaction: t});
+
+          } catch (e) {
+            console.error('[consultarEstadoTransaccion] Error enviando correos:', e?.message || e);
+          }
         }
       }
     }
 
     await t.commit();
-    return res.status(200).json({ message: 'OK', state: nuevoEstadoNombre, pedido_estado: pedido ? pedido.estado : null });
+    return res.status(200).json({
+      message: 'OK',
+      state: nuevoEstadoNombre,
+      pedido_estado: pedido ? pedido.estado : null
+    });
 
   } catch (err) {
     await t.rollback();
     console.error('Error webhook Wompi:', err);
-    return res.status(500).json({ message: 'Error interno procesando webhook' });
+    return res.status(500).json({message: 'Error interno procesando webhook'});
   }
 };
 

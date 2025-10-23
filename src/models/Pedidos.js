@@ -1,72 +1,23 @@
-const {DataTypes} = require('sequelize');
-const {sequelize}  = require('../config/database'); // ajusta la ruta a tu instancia de Sequelize
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/database');
 
 const Pedido = sequelize.define('Pedido', {
-  id_pedido: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
-    allowNull: false
-  },
-  cliente_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: 'clientes',
-      key: 'id'
-    }
-  },
-  transaccion_id: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    references: {
-      model: 'transacciones',
-      key: 'id_transaccion'
-    }
-  },
-  productos: {
-    type: DataTypes.JSONB,
-    allowNull: true,
-    comment: 'Arreglo JSON con los productos del pedido (id, sku, nombre, cantidad, precio, etc.)'
-  },
+  id_pedido: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true, allowNull: false },
+  cliente_id: { type: DataTypes.INTEGER, allowNull: false },
+  transaccion_id: { type: DataTypes.INTEGER, allowNull: true },
+  productos: { type: DataTypes.JSONB, allowNull: false },
   estado: {
-    type: DataTypes.ENUM(
-        'INICIADO',
-        'PAGO_PENDIENTE',
-        'PAGADO',
-        'EN_PREPARACION',
-        'ENVIADO',
-        'CANCELADO'
-    ),
+    type: DataTypes.ENUM('INICIADO','PAGO_PENDIENTE','PAGADO','EN_PREPARACION','ENVIADO','CANCELADO'),
     allowNull: false,
     defaultValue: 'INICIADO'
   },
-  departamento: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  ciudad: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  direccion_envio: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  notas: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  },
-  creado_en: {
-    type: DataTypes.DATE,
-    allowNull: false,
-    defaultValue: DataTypes.NOW
-  },
-  actualizado_en: {
-    type: DataTypes.DATE,
-    allowNull: false,
-    defaultValue: DataTypes.NOW
-  }
+  departamento: { type: DataTypes.STRING, allowNull: true },
+  ciudad: { type: DataTypes.STRING, allowNull: true },
+  direccion_envio: { type: DataTypes.STRING, allowNull: true },
+  notas: { type: DataTypes.TEXT, allowNull: true },
+  creado_en: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+  actualizado_en: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+  envio_correo: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false  },
 }, {
   tableName: 'pedidos',
   timestamps: false

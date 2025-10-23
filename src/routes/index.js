@@ -5,6 +5,7 @@ const transaccionRoutes = require('./transaccionRoutes');
 const estadoTransaccionRoutes = require('./estadoTransaccionRoutes');
 const usuarioRoutes = require('./usuarioRoutes');
 const rolRoutes = require('./rolRoutes');
+const pedidosRoutes = require('./pedidosRoutes');
 
 const router = express.Router();
 
@@ -15,5 +16,6 @@ router.use('/transacciones', transaccionRoutes);
 router.use('/estados-transacciones', estadoTransaccionRoutes);
 router.use('/usuarios', usuarioRoutes);
 router.use('/roles', rolRoutes);
+router.use('/pedidos', pedidosRoutes);
 
 module.exports = router;
