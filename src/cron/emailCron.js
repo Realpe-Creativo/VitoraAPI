@@ -3,7 +3,7 @@ const { Pedidos, Transaccion, Cliente } = require('../models'); // 👈 sin Pedi
 const { sendOrderApprovedEmails } = require('../utils/orderEmails');
 const { sequelize } = require('../config/database');
 
-const ESTADOS_VALIDOS = ['PAGADO', 'PAGO_PENDIENTE'];
+const ESTADOS_VALIDOS = ['PAGADO'];
 
 async function processPendingEmailOrders(limit = 50) {
   console.log('[cron:emails] Buscando pedidos pendientes de envío de correo...');
