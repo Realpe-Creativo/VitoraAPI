@@ -42,7 +42,7 @@ function buildOrderEmailHTML({pedido, transaccion, cliente, items}) {
   const {shipping, tax, total} = computeTotals({pedido, normItems});
 
   // filas de items
-  const rows = normItems.map(({ name, units, price, img }) => `
+  const rows = normItems.map(({name, units, price, img}) => `
   <tr style="vertical-align: top">
     <td style="padding: 24px 8px 0 8px; width: 100%;">
       <div style="display: flex; align-items: flex-start; gap: 12px;">
@@ -174,8 +174,15 @@ function buildOrderEmailHTML({pedido, transaccion, cliente, items}) {
         </table>
       </div>
     </div>
+    <div style="margin-top: 20px; width: 100%;">
+      <img
+        src="https://res.cloudinary.com/dbwojwe12/image/upload/v1763507708/BANNER_CORREO_kykwhg.png"
+        alt="Banner"
+        style="width: 100%; display: block; border-radius: 4px;"
+      />
+    </div>
   </div>
-  </div>
+ </div>
   
   <div style="max-width: 600px; margin: auto">
     <p style="color: #999">
@@ -195,7 +202,7 @@ function buildOrderEmailText({pedido, transaccion, cliente, items}) {
       '—';
 
   const normItems = normalizeItems(items);
-  const { shipping, tax, total, itemsSum } = computeTotals({ pedido, normItems });
+  const {shipping, tax, total, itemsSum} = computeTotals({pedido, normItems});
 
   const lines = [
     `¡Gracias por tu pedido en ${BRAND_NAME}!`,
@@ -243,6 +250,7 @@ async function sendOrderApprovedEmails({pedido, transaccion, cliente, items = []
   const html = buildOrderEmailHTML({pedido, transaccion, cliente, items});
   const text = buildOrderEmailText({pedido, transaccion, cliente, items});
   const subject = `Pedido ${pedido?.numero || pedido?.id || ''} confirmado - Pago aprobado`;
+  const errors = [];
 
   // Adjuntos (CID)
   const attachments = [];
@@ -258,26 +266,47 @@ async function sendOrderApprovedEmails({pedido, transaccion, cliente, items = []
   const toCliente = cliente?.email;
   if (toCliente) {
     promises.push(
-        sendMail({to: toCliente, subject, html, text, attachments}).catch((e) =>
-            console.error('[orderEmails] Error enviando al cliente:', e?.message || e)
-        )
+        sendMail({ to: toCliente, subject, html, text, attachments })
+            .catch((e) => {
+              const errInfo = {
+                tipo: 'cliente',
+                to: toCliente,
+                message: e?.message || String(e),
+              };
+              console.error('[orderEmails] Error enviando al cliente:', errInfo);
+              errors.push(errInfo);
+            })
     );
   }
 
-  if (toAdmin) {
+  if (adminEmail) {
     promises.push(
-        sendMail({to: toAdmin, subject: `[ADMIN] ${subject}`, html, text, attachments}).catch((e) =>
-            console.error('[orderEmails] Error enviando al admin:', e?.message || e)
-        )
+        sendMail({ to: adminEmail, subject: `[ADMIN] ${subject}`, html, text, attachments })
+            .catch((e) => {
+              const errInfo = {
+                tipo: 'admin',
+                to: adminEmail,
+                message: e?.message || String(e),
+              };
+              console.error('[orderEmails] Error enviando al admin:', errInfo);
+              errors.push(errInfo);
+            })
     );
   }
 
   await Promise.all(promises);
+
+  if (errors.length > 0) {
+    const error = new Error('Error enviando uno o más correos de la orden');
+    // opcional: adjuntar detalles para logs superiores
+    // @ts-ignore si usas TS
+    error.details = errors;
+    throw error;
+  }
 }
 
 module.exports = {
   sendOrderApprovedEmails,
-  // exporto helpers si quieres testearlos
   _buildOrderEmailHTML: buildOrderEmailHTML,
   _buildOrderEmailText: buildOrderEmailText,
   _normalizeItems: normalizeItems,

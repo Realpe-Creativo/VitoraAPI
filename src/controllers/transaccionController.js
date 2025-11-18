@@ -564,6 +564,8 @@ const consultarEstadoTransaccion = async (req, res, next) => {
                 actualizado_en: new Date()
               }, {transaction: t});
             }
+
+            console.log('VA A ENVIAR LOS CORREOS?', despues, pedido.envio_correo);
             // === Disparo de correos SOLO cuando transiciona a PAGADO y no ha enviado el correo antes ===
             if (despues === 'PAGADO' && !pedido.envio_correo) {
 
@@ -580,6 +582,7 @@ const consultarEstadoTransaccion = async (req, res, next) => {
 
               // Intenta enviar fuera de la transacción para no bloquear el commit por SMTP
               // (Aquí ya hiciste el update, pero aún no commit. Puedes mover el envío después del commit si prefieres.)
+              console.log('VA A ENVIAR LOS CORREOS');
               try {
                 await sendOrderApprovedEmails({
                   pedido,
@@ -698,7 +701,7 @@ const notificacion_pago = async (req, res) => {
             actualizado_en: new Date()
           }, {transaction: t});
         }
-        // === Disparo de correos SOLO cuando transiciona a PAGADO y no ha enviado el correo antes ===
+
         if (despues === 'PAGADO' && !pedido.envio_correo) {
 
           let cliente = null;
@@ -712,8 +715,6 @@ const notificacion_pago = async (req, res) => {
             console.warn('[consultarEstadoTransaccion] No se pudo cargar cliente/ítems para email:', e?.message || e);
           }
 
-          // Intenta enviar fuera de la transacción para no bloquear el commit por SMTP
-          // (Aquí ya hiciste el update, pero aún no commit. Puedes mover el envío después del commit si prefieres.)
           try {
             await sendOrderApprovedEmails({
               pedido,

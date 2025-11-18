@@ -6,6 +6,7 @@ const dotenv = require('dotenv');
 const jwt = require('jsonwebtoken');
 const http = require('http');
 const { ApolloServer } = require('apollo-server-express');
+require('./cron/cronIndex');
 
 dotenv.config();
 
