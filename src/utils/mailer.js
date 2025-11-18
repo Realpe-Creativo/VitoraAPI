@@ -39,7 +39,7 @@ function withTimeout(promise, ms, label = 'operación') {
 const transporter = nodemailer.createTransport({
   host: SMTP_HOST,
   port: Number(SMTP_PORT || 465),
-  secure: String(SMTP_PORT || '465') === '465', // true para 465 (SSL), false para 587 (STARTTLS)
+  secure: false,
   auth: {
     user: SMTP_USER,
     pass: SMTP_PASS,
