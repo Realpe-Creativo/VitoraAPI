@@ -46,22 +46,42 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-async function sendMail({ to, subject, html, text, cc, bcc, replyTo, attachments }) {
+
+async function sendMail({to, subject, html, text, cc, bcc, replyTo, attachments}) {
   const from = SMTP_FROM || SMTP_USER;
 
-  const mailPromise = transporter.sendMail({
-    from,
+  console.log('Intentando enviar correo...', {
     to,
-    subject,
-    html,
-    text,
-    cc,
-    bcc,
-    replyTo,
-    attachments,
+    from,
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    hasUser: !!SMTP_USER,
   });
 
-  return withTimeout(mailPromise, EMAIL_TIMEOUT_MS, `envío de correo a ${to}`);
+  try {
+    const info = await transporter.sendMail({
+      from,
+      to,
+      subject,
+      html,
+      text,
+      cc,
+      bcc,
+      replyTo,
+      attachments,
+    });
+
+    console.log('Correo enviado OK:', info.messageId);
+    return info;
+  } catch (error) {
+    console.error('Error enviando correo:', {
+      message: error.message,
+      code: error.code,
+      name: error.name,
+      stack: error.stack,
+    });
+    throw error;
+  }
 }
 
-module.exports = { sendMail };
+module.exports = {sendMail};
