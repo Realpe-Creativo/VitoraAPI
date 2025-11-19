@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const { processPendingEmailOrders } = require('./emailCron');
 
-cron.schedule('* * * * *', async () => {
+cron.schedule('*/3 * * * *', async () => {
   try {
     console.log("VA A EJECUTAR EL CRON");
     await processPendingEmailOrders();

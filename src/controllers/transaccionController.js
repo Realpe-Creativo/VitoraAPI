@@ -213,7 +213,7 @@ const createTransaccion = async (req, res, next) => {
 
     // 1) Siguiente referencia única
     const last = await Transaccion.max('referencia');
-    const nextRef = last ? (Number(last) + 1) : 100000000000;
+    const nextRef = last ? (Number(last) + 1) : 1000000000;
 
     // 2) Asegura Cliente (idempotente simple por identificación)
     let cliente = await Cliente.findOne({where: {identificacion: document_number}, transaction: t});
