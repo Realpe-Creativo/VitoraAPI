@@ -6,6 +6,7 @@ const {
   ADMIN_EMAIL,
   WEBSITE_URL = 'https://vitoracolombia.com',
   BRAND_NAME = 'VITORA',
+  LOGO_URL = 'https://res.cloudinary.com/dbwojwe12/image/upload/v1763654232/logo_verde_drnsfg.png',
 } = process.env;
 
 // --------- Utils ----------
@@ -83,7 +84,7 @@ function buildOrderEmailHTML({pedido, transaccion, cliente, items}) {
         <img
           style="height: 32px; vertical-align: middle"
           height="32px"
-          src="cid:logo.png"
+          src="${LOGO_URL}"
           alt="logo"
         />
       </a>
@@ -235,72 +236,54 @@ function buildOrderEmailText({pedido, transaccion, cliente, items}) {
 
 /**
  * Envía correos de confirmación de pedido APROBADO:
- * - al cliente
- * - al admin
+ * - al cliente (en "to")
+ * - al admin en copia oculta (en "bcc")
  *
  * @param {Object} opts
  * @param {Object} opts.pedido
+ * @param {Object} opts.transaccion
  * @param {Object} opts.cliente (debe incluir email)
  * @param {Array}  opts.items
  * @param {String} opts.adminEmail
- * @param {String} opts.logoPath ruta local del logo para CID (opcional, default ./assets/logo.png)
  */
-async function sendOrderApprovedEmails({pedido, transaccion, cliente, items = [], adminEmail, logoPath}) {
-  const toAdmin = adminEmail || ADMIN_EMAIL;
-  const html = buildOrderEmailHTML({pedido, transaccion, cliente, items});
-  const text = buildOrderEmailText({pedido, transaccion, cliente, items});
+async function sendOrderApprovedEmails({ pedido, transaccion, cliente, items = [], adminEmail }) {
+  const html = buildOrderEmailHTML({ pedido, transaccion, cliente, items });
+  const text = buildOrderEmailText({ pedido, transaccion, cliente, items });
   const subject = `Pedido ${pedido?.numero || pedido?.id || ''} confirmado - Pago aprobado`;
-  const errors = [];
 
-  // Adjuntos (CID)
-  const attachments = [];
-  const resolvedLogo = path.resolve(logoPath || './src/assets/logo_verde.png');
-  attachments.push({
-    filename: 'logo.png',
-    path: resolvedLogo,
-    cid: 'logo.png', // debe coincidir con src="cid:logo.png"
-  });
+  const toCliente = cliente?.email || null;
+  const bccAdmin = adminEmail || ADMIN_EMAIL || null;
 
-  const promises = [];
+  let to = toCliente;
 
-  const toCliente = cliente?.email;
-  if (toCliente) {
-    promises.push(
-        sendMail({ to: toCliente, subject, html, text, attachments })
-            .catch((e) => {
-              const errInfo = {
-                tipo: 'cliente',
-                to: toCliente,
-                message: e?.message || String(e),
-              };
-              console.error('[orderEmails] Error enviando al cliente:', errInfo);
-              errors.push(errInfo);
-            })
-    );
+  // Si no hay email del cliente, se lo mandamos solo al admin
+  if (!toCliente && bccAdmin) {
+    to = bccAdmin;
   }
 
-  if (adminEmail) {
-    promises.push(
-        sendMail({ to: adminEmail, subject: `[ADMIN] ${subject}`, html, text, attachments })
-            .catch((e) => {
-              const errInfo = {
-                tipo: 'admin',
-                to: adminEmail,
-                message: e?.message || String(e),
-              };
-              console.error('[orderEmails] Error enviando al admin:', errInfo);
-              errors.push(errInfo);
-            })
-    );
+  if (!to) {
+    throw new Error('[sendOrderApprovedEmails] No hay destinatarios válidos (cliente ni admin).');
   }
 
-  await Promise.all(promises);
-
-  if (errors.length > 0) {
-    const error = new Error('Error enviando uno o más correos de la orden');
-    // opcional: adjuntar detalles para logs superiores
+  try {
+    await sendMail({
+      to,
+      subject,
+      html,
+      text,
+      // admin en copia oculta solo si el "to" es el cliente
+      bcc: toCliente && bccAdmin ? bccAdmin : undefined,
+    });
+  } catch (e) {
+    const errInfo = {
+      to,
+      bcc: toCliente && bccAdmin ? bccAdmin : undefined,
+      message: e?.message || String(e),
+    };
+    console.error('[orderEmails] Error enviando correo de pedido aprobado:', errInfo);
+    const error = new Error('Error enviando el correo de confirmación de la orden');
     // @ts-ignore si usas TS
-    error.details = errors;
+    error.details = errInfo;
     throw error;
   }
 }

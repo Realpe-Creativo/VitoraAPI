@@ -25,6 +25,7 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.9",
     "pg": "^8.16.0",
+    "resend": "^6.5.2",
     "sequelize": "^6.35.1",
     "sqlite3": "^5.1.6",
     "xlsx": "^0.18.5"

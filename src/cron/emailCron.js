@@ -38,7 +38,6 @@ async function processPendingEmailOrders(limit = 50) {
     const items = Array.isArray(pedido.productos) ? pedido.productos : [];
 
     const adminEmail = process.env.ADMIN_EMAIL;
-    const logoPath = './src/assets/logo_verde.png';
 
     console.log(`[cron:emails] Procesando pedido #${pedido.id} (estado: ${pedido.estado})`);
 
@@ -50,7 +49,6 @@ async function processPendingEmailOrders(limit = 50) {
         cliente,
         items,
         adminEmail,
-        logoPath,
       });
 
       await pedido.update(

@@ -590,7 +590,6 @@ const consultarEstadoTransaccion = async (req, res, next) => {
                   cliente,
                   items,
                   adminEmail: process.env.ADMIN_EMAIL,
-                  logoPath: './src/assets/logo_verde.png',
                 });
 
                 await pedido.update({
@@ -722,7 +721,6 @@ const notificacion_pago = async (req, res) => {
               cliente,
               items,
               adminEmail: process.env.ADMIN_EMAIL,
-              logoPath: './src/assets/logo_verde.png',
             });
 
             await pedido.update({
