@@ -271,7 +271,6 @@ async function sendOrderApprovedEmails({ pedido, transaccion, cliente, items = [
       subject,
       html,
       text,
-      // admin en copia oculta solo si el "to" es el cliente
       bcc: toCliente && bccAdmin ? bccAdmin : undefined,
     });
   } catch (e) {

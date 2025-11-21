@@ -2,6 +2,7 @@
 const nodemailer = require('nodemailer');
 const { Resend } = require('resend');
 const fs = require('fs');
+const path = require('path'); // <- necesario para path.basename
 
 const {
   SMTP_HOST,
@@ -30,6 +31,24 @@ function withTimeout(promise, ms, label = 'operación') {
     promise.finally(() => clearTimeout(timeoutId)),
     timeoutPromise,
   ]);
+}
+
+// --------- Helper para normalizar destinatarios ---------- //
+function normalizeRecipients(field) {
+  if (!field) return undefined;
+
+  // Si ya es array, limpiamos espacios
+  if (Array.isArray(field)) {
+    return field
+        .map((e) => String(e).trim())
+        .filter(Boolean);
+  }
+
+  // Si es string, separamos por coma o punto y coma
+  return String(field)
+      .split(/[;,]/)
+      .map((e) => e.trim())
+      .filter(Boolean);
 }
 
 // --------- Config SMTP (para local / entornos donde funcione) ---------- //
@@ -64,66 +83,73 @@ const EFFECTIVE_PROVIDER = EMAIL_PROVIDER || (RESEND_API_KEY ? 'resend' : 'smtp'
 async function sendMail({ to, subject, html, text, cc, bcc, replyTo, attachments = [] }) {
   const from = SMTP_FROM || SMTP_USER;
 
-  if (!to) {
+  // Normalizamos destinatarios
+  const toNormalized = normalizeRecipients(to);
+  const ccNormalized = normalizeRecipients(cc);
+  const bccNormalized = normalizeRecipients(bcc);
+
+  if (!toNormalized || toNormalized.length === 0) {
     throw new Error('[mailer] Campo "to" es obligatorio');
   }
 
   // ---------- RUTA RESEND ---------- //
   if (EFFECTIVE_PROVIDER === 'resend' && resend) {
     // Adaptar adjuntos para Resend
-    const resendAttachments = (attachments || []).map((att) => {
-      // 1) Si ya viene con content, lo respetamos
-      if (att.content) {
-        return {
-          filename: att.filename,
-          content: Buffer.isBuffer(att.content)
-              ? att.content.toString('base64')
-              : att.content,
-          content_id: att.cid || att.content_id, // para inline cid
-        };
-      }
+    const resendAttachments = (attachments || [])
+        .map((att) => {
+          // 1) Si ya viene con content, lo respetamos
+          if (att.content) {
+            return {
+              filename: att.filename,
+              content: Buffer.isBuffer(att.content)
+                  ? att.content.toString('base64')
+                  : att.content,
+              content_id: att.cid || att.content_id, // para inline cid
+            };
+          }
 
-      // 2) Si path es URL http/https -> usar path directamente
-      if (att.path && /^https?:\/\//.test(att.path)) {
-        return {
-          filename: att.filename || att.path.split('/').pop(),
-          path: att.path,
-          content_id: att.cid || att.content_id,
-        };
-      }
+          // 2) Si path es URL http/https -> usar path directamente
+          if (att.path && /^https?:\/\//.test(att.path)) {
+            return {
+              filename: att.filename || att.path.split('/').pop(),
+              path: att.path,
+              content_id: att.cid || att.content_id,
+            };
+          }
 
-      // 3) Si path es local -> leer archivo y mandarlo como content base64
-      if (att.path) {
-        try {
-          const fileBuf = fs.readFileSync(att.path);
-          return {
-            filename: att.filename || path.basename(att.path),
-            content: fileBuf.toString('base64'),
-            content_id: att.cid || att.content_id,
-          };
-        } catch (e) {
-          console.error('[mailer][Resend] No se pudo leer el archivo local de attachment:', {
-            path: att.path,
-            error: e?.message || e,
-          });
-          // Lo omitimos para no tumbar todo el envío
-          return null;
-        }
-      }
+          // 3) Si path es local -> leer archivo y mandarlo como content base64
+          if (att.path) {
+            try {
+              const fileBuf = fs.readFileSync(att.path);
+              return {
+                filename: att.filename || path.basename(att.path),
+                content: fileBuf.toString('base64'),
+                content_id: att.cid || att.content_id,
+              };
+            } catch (e) {
+              console.error('[mailer][Resend] No se pudo leer el archivo local de attachment:', {
+                path: att.path,
+                error: e?.message || e,
+              });
+              // Lo omitimos para no tumbar todo el envío
+              return null;
+            }
+          }
 
-      // 4) Fallback: devolver tal cual si por alguna razón no encaja en nada
-      return att;
-    }).filter(Boolean); // quitamos nulos
+          // 4) Fallback: devolver tal cual si por alguna razón no encaja en nada
+          return att;
+        })
+        .filter(Boolean); // quitamos nulos
 
     const mailPromise = (async () => {
       const { data, error } = await resend.emails.send({
         from,
-        to,
+        to: toNormalized,
         subject,
         html,
         text,
-        cc,
-        bcc,
+        cc: ccNormalized,
+        bcc: bccNormalized,
         reply_to: replyTo,
         attachments: resendAttachments.length ? resendAttachments : undefined,
       });
@@ -137,24 +163,32 @@ async function sendMail({ to, subject, html, text, cc, bcc, replyTo, attachments
       return data;
     })();
 
-    return withTimeout(mailPromise, EMAIL_TIMEOUT_MS, `envío de correo (Resend) a ${to}`);
+    return withTimeout(
+        mailPromise,
+        EMAIL_TIMEOUT_MS,
+        `envío de correo (Resend) a ${toNormalized.join(', ')}`
+    );
   }
 
   // ---------- RUTA SMTP (Nodemailer) ---------- //
   if (transporter) {
     const mailPromise = transporter.sendMail({
       from,
-      to,
+      to: toNormalized,
       subject,
       html,
       text,
-      cc,
-      bcc,
+      cc: ccNormalized,
+      bcc: bccNormalized,
       replyTo,
       attachments,
     });
 
-    return withTimeout(mailPromise, EMAIL_TIMEOUT_MS, `envío de correo (SMTP) a ${to}`);
+    return withTimeout(
+        mailPromise,
+        EMAIL_TIMEOUT_MS,
+        `envío de correo (SMTP) a ${toNormalized.join(', ')}`
+    );
   }
 
   throw new Error('[mailer] No hay proveedor de correo configurado (Resend ni SMTP)');
