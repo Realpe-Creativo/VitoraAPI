@@ -39,7 +39,7 @@ async function processPendingEmailOrders(limit = 50) {
 
     const adminEmail = process.env.ADMIN_EMAIL;
 
-    console.log(`[cron:emails] Procesando pedido #${pedido.id} (estado: ${pedido.estado})`);
+    console.log(`[cron:emails] Procesando pedido #${pedido.id_pedido} (estado: ${pedido.estado})`);
 
     const t = await sequelize.transaction();
     try {
