@@ -38,7 +38,7 @@ function computeTotals({pedido, normItems}) {
 }
 
 function buildOrderEmailHTML({pedido, transaccion, cliente, items}) {
-  const orderId = transaccion.referencia;
+  const orderId = transaccion?.referencia ?? pedido?.id_pedido ?? pedido?.id ?? '—';
   const normItems = normalizeItems(items);
   const {shipping, tax, total} = computeTotals({pedido, normItems});
 
@@ -246,10 +246,14 @@ function buildOrderEmailText({pedido, transaccion, cliente, items}) {
  * @param {Array}  opts.items
  * @param {String} opts.adminEmail
  */
-async function sendOrderApprovedEmails({ pedido, transaccion, cliente, items = [], adminEmail }) {
+async function sendOrderApprovedEmails({ pedido, transaccion, cliente, items = [], adminEmail, subject: customSubject }) {
   const html = buildOrderEmailHTML({ pedido, transaccion, cliente, items });
   const text = buildOrderEmailText({ pedido, transaccion, cliente, items });
-  const subject = `Pedido ${pedido?.numero || pedido?.id || ''} confirmado - Pago aprobado`;
+  const ref = pedido?.numero || pedido?.id_pedido || pedido?.id || '';
+  const defaultSubject = pedido?.metodo_pago === 'CONTRAENTREGA'
+    ? `Pedido #${ref} recibido - Pagas al recibir`
+    : `Pedido #${ref} confirmado - Pago aprobado`;
+  const subject = customSubject || defaultSubject;
 
   const toCliente = cliente?.email || null;
   const bccAdmin = adminEmail || ADMIN_EMAIL || null;

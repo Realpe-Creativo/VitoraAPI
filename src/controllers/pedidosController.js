@@ -2,6 +2,7 @@
 const { Op } = require('sequelize');
 const { sequelize } = require('../config/database'); // ajusta la ruta
 const Pedido = require('../models/Pedidos');          // ajusta la ruta
+const { sendOrderApprovedEmails } = require('../utils/orderEmails');
 // Opcional: si quieres incluirlos en las respuestas
 let Cliente, Transaccion, EstadoTransaccion;
 try {
@@ -394,6 +395,21 @@ const createContraentrega = async (req, res, next) => {
     }, { transaction: t });
 
     await t.commit();
+
+    // Enviar correo de confirmación al cliente y al admin (no falla la respuesta si el correo falla)
+    try {
+      const items = Array.isArray(productosJSON) ? productosJSON : [];
+      await sendOrderApprovedEmails({
+        pedido,
+        transaccion: null,
+        cliente,
+        items,
+        adminEmail: process.env.ADMIN_EMAIL,
+      });
+      await pedido.update({ envio_correo: true });
+    } catch (emailErr) {
+      console.error('[createContraentrega] Error enviando correo de confirmación:', emailErr?.message || emailErr);
+    }
 
     return res.status(201).json({
       success: true,
