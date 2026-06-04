@@ -350,8 +350,64 @@ const deletePedido = async (req, res, next) => {
   }
 };
 
+const createContraentrega = async (req, res, next) => {
+  const t = await sequelize.transaction();
+  try {
+    const {
+      nombre, apellido, email, telefono,
+      documento, tipo_documento,
+      departamento, ciudad, direccion_envio,
+      notas, productos, valor_total
+    } = req.body;
+
+    if (!nombre || !email || !telefono || !direccion_envio || !ciudad || !productos) {
+      await t.rollback();
+      return res.status(400).json({ message: 'Faltan campos obligatorios.' });
+    }
+
+    const productosJSON = parseProductos(productos);
+
+    const [cliente] = await Cliente.findOrCreate({
+      where: { identificacion: documento || email },
+      defaults: {
+        identificacion: documento || email,
+        tipo_identificacion: tipo_documento || 'CC',
+        nombre_cliente: `${nombre} ${apellido || ''}`.trim(),
+        email,
+        phone: telefono
+      },
+      transaction: t
+    });
+
+    const pedido = await Pedido.create({
+      cliente_id: cliente.id,
+      transaccion_id: null,
+      productos: productosJSON,
+      estado: 'PAGO_PENDIENTE',
+      metodo_pago: 'CONTRAENTREGA',
+      departamento: departamento || null,
+      ciudad,
+      direccion_envio,
+      notas: notas || null,
+      creado_en: new Date(),
+      actualizado_en: new Date()
+    }, { transaction: t });
+
+    await t.commit();
+
+    return res.status(201).json({
+      success: true,
+      id_pedido: pedido.id_pedido
+    });
+  } catch (err) {
+    await t.rollback();
+    next(err);
+  }
+};
+
 module.exports = {
   createPedido,
+  createContraentrega,
   getAllPedidos,
   getPedidoById,
   getPedidosByCliente,

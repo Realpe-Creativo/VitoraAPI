@@ -5,6 +5,11 @@ const EstadoTransaccion = require('./EstadoTransaccion');
 const Usuario = require('./Usuario');
 const Rol = require('./Rol');
 const Pedidos = require('./Pedidos');
+const Producto = require('./Producto');
+const ProductoVariante = require('./ProductoVariante');
+const ProductoFaq = require('./ProductoFaq');
+const ProductoSeccionExtra = require('./ProductoSeccionExtra');
+const ProductoShort = require('./ProductoShort');
 
 // Define associations between models
 const setupAssociations = () => {
@@ -51,6 +56,19 @@ const setupAssociations = () => {
     as: 'transaccion',
     foreignKey: 'transaccion_id'
   });
+
+  // Producto associations
+  Producto.hasMany(ProductoVariante, { foreignKey: 'producto_id', as: 'variantes', onDelete: 'CASCADE' });
+  ProductoVariante.belongsTo(Producto, { foreignKey: 'producto_id', as: 'producto' });
+
+  Producto.hasMany(ProductoFaq, { foreignKey: 'producto_id', as: 'faqs', onDelete: 'CASCADE' });
+  ProductoFaq.belongsTo(Producto, { foreignKey: 'producto_id', as: 'producto' });
+
+  Producto.hasMany(ProductoSeccionExtra, { foreignKey: 'producto_id', as: 'secciones_extra', onDelete: 'CASCADE' });
+  ProductoSeccionExtra.belongsTo(Producto, { foreignKey: 'producto_id', as: 'producto' });
+
+  Producto.hasMany(ProductoShort, { foreignKey: 'producto_id', as: 'shorts', onDelete: 'CASCADE' });
+  ProductoShort.belongsTo(Producto, { foreignKey: 'producto_id', as: 'producto' });
 };
 
 // Function to sync all models with database
@@ -78,5 +96,10 @@ module.exports = {
   Usuario,
   Rol,
   Pedidos,
+  Producto,
+  ProductoVariante,
+  ProductoFaq,
+  ProductoSeccionExtra,
+  ProductoShort,
   syncModels
 };

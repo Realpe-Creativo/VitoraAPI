@@ -5,6 +5,7 @@ const morgan = require('morgan');
 const dotenv = require('dotenv');
 const jwt = require('jsonwebtoken');
 const http = require('http');
+const path = require('path');
 const { ApolloServer } = require('apollo-server-express');
 require('./cron/cronIndex');
 
@@ -28,6 +29,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 app.use((req, _res, next) => {
   const authHeader = req.headers.authorization || '';

@@ -43,6 +43,24 @@ router.post('/',
 );
 
 /**
+ * @route POST /pedidos/contraentrega
+ * @desc Crear pedido de pago contra entrega (no requiere auth)
+ * @access Public
+ */
+router.post('/contraentrega',
+    [
+      body('nombre').notEmpty().withMessage('nombre es obligatorio'),
+      body('email').isEmail().withMessage('email inválido'),
+      body('telefono').notEmpty().withMessage('telefono es obligatorio'),
+      body('ciudad').notEmpty().withMessage('ciudad es obligatoria'),
+      body('direccion_envio').notEmpty().withMessage('direccion_envio es obligatoria'),
+      body('productos').custom(v => Array.isArray(v) && v.length > 0).withMessage('productos debe ser un arreglo no vacío'),
+      validate
+    ],
+    pedidoController.createContraentrega
+);
+
+/**
  * A partir de aquí protegemos rutas
  */
 router.use(authenticateToken);

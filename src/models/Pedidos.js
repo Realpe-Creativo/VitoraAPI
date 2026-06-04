@@ -14,6 +14,7 @@ const Pedido = sequelize.define('Pedido', {
   departamento: { type: DataTypes.STRING, allowNull: true },
   ciudad: { type: DataTypes.STRING, allowNull: true },
   direccion_envio: { type: DataTypes.STRING, allowNull: true },
+  metodo_pago: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'WOMPI' },
   notas: { type: DataTypes.TEXT, allowNull: true },
   creado_en: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
   actualizado_en: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
