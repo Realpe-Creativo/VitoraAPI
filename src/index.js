@@ -5,7 +5,6 @@ const morgan = require('morgan');
 const dotenv = require('dotenv');
 const jwt = require('jsonwebtoken');
 const http = require('http');
-const path = require('path');
 const { ApolloServer } = require('apollo-server-express');
 require('./cron/cronIndex');
 
@@ -21,6 +20,9 @@ const { errorHandler, notFound } = require('./middlewares/errorHandler');
 const typeDefs = require('./graphql/typeDefs');
 const resolvers = require('./graphql/resolvers');
 
+const { GetObjectCommand } = require('@aws-sdk/client-s3');
+const { s3, BUCKET } = require('./config/s3');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -29,7 +31,19 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.get('/img/products/:filename', async (req, res) => {
+  try {
+    const data = await s3.send(new GetObjectCommand({
+      Bucket: BUCKET,
+      Key: `img/products/${req.params.filename}`,
+    }));
+    res.setHeader('Content-Type', data.ContentType || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    data.Body.pipe(res);
+  } catch (err) {
+    res.status(404).json({ error: 'Imagen no encontrada' });
+  }
+});
 
 app.use((req, _res, next) => {
   const authHeader = req.headers.authorization || '';
