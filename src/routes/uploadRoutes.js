@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { authenticateToken } = require('../middlewares/auth');
 
-const UPLOAD_DIR = path.join(__dirname, '../../uploads');
+const UPLOAD_DIR = path.join(__dirname, '../../../VitoraWeb/public/img/products');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const storage = multer.diskStorage({
@@ -30,8 +30,7 @@ const router = express.Router();
 
 router.post('/', authenticateToken, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No se recibió ningún archivo' });
-  const base = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
-  res.json({ url: `${base}/uploads/${req.file.filename}` });
+  res.json({ url: `/img/products/${req.file.filename}` });
 });
 
 module.exports = router;
